@@ -146,55 +146,43 @@ def initialize_simulation(model, output_file, geometry, exit_polygon):
         model=model,
         geometry=geometry.polygon,
         trajectory_writer=jps.SqliteTrajectoryWriter(
-            output_file=pathlib.Path(output_file), every_nth_frame=10
+            output_file=pathlib.Path(output_file), every_nth_frame=1
         ),
     )
     exit_id = simulation.add_exit_stage(exit_polygon)
-    direct_steering_stage = simulation.add_direct_steering_stage()
-
-    direct_journey = jps.JourneyDescription([direct_steering_stage])
-    exit_journey = jps.JourneyDescription([exit_id])
-    direct_journey_id = simulation.add_journey(direct_journey)
-    exit_journey_id = simulation.add_journey(exit_journey)
-    return (
-        simulation,
-        direct_journey_id,
-        exit_journey_id,
-        direct_steering_stage,
-        exit_id,
-    )
+    journey = jps.JourneyDescription([exit_id])
+    journey_id = simulation.add_journey(journey)
+    return simulation, journey_id, exit_id
 
 
 def add_agents(
     simulation,
-    direct_journey_id,
-    exit_journey_id,
-    stage_id,
+    journey_id,
     exit_id,
     agent_positions,
     agent_parameters,
 ):
-    for i, pos in enumerate(agent_positions):
-        if i == 0:
-            simulation.add_agent(
-                agent_parameters(
-                    journey_id=direct_journey_id,
-                    stage_id=stage_id,
-                    position=pos,
-                    desired_speed=1.0,
-                    radius=0.15,
-                )
+    for pos in agent_positions:
+        simulation.add_agent(
+            agent_parameters(
+                journey_id=journey_id,
+                stage_id=exit_id,
+                position=pos,
+                desired_speed=1.0,
+                radius=0.15,
             )
-        else:
-            simulation.add_agent(
-                agent_parameters(
-                    journey_id=exit_journey_id,
-                    stage_id=exit_id,
-                    position=pos,
-                    desired_speed=1.0,
-                    radius=0.15,
-                )
-            )
+        )
+
+
+def run_simulation(simulation, output_file, max_iterations=5000):
+    while (
+        simulation.agent_count() > 0 and simulation.iteration_count() < max_iterations
+    ):
+        simulation.iterate()
+    print(f"Evacuation time: {simulation.elapsed_time():.2f} s")
+    trajectory_data, walkable_area = read_sqlite_file(output_file)
+    anim = animate(trajectory_data, walkable_area, every_nth_frame=50)
+    return anim, simulation.elapsed_time()
 
 
 if __name__ == "__main__":
@@ -204,43 +192,62 @@ if __name__ == "__main__":
     walkable_area = pedpy.WalkableArea(geometry.geoms[0])
     polygon = walkable_area.polygon
     exit_polygon = Polygon([[21, 12], [24, 12], [24, 10], [21, 10]])
-    spawning_area = Polygon([[-16, -1], [-12, -1], [-12, -4], [-16, -4]])
+    spawning_area = Polygon([-16, -1], [-12, -1], [-12, -4], [-16, -4])
     # ----- init simulation -------
     output_file = "traj.sqlite"
     collision_free_model = jps.CollisionFreeSpeedModel()
-    simulation, direct_journey_id, exit_journey_id, stage_id, exit_id = (
-        initialize_simulation(
-            collision_free_model, output_file, walkable_area, exit_polygon
-        )
+    simulation, journey_id, exit_id = initialize_simulation(
+        collision_free_model, output_file, walkable_area, exit_polygon
     )
 
     pos_in_spawning_area = jps.distribute_by_number(
         polygon=spawning_area,
-        number_of_agents=2,
+        number_of_agents=1,
         distance_to_agents=0.30,
         distance_to_polygon=0.15,
         seed=1,
     )
-
     add_agents(
         simulation,
-        direct_journey_id=direct_journey_id,
-        exit_journey_id=exit_journey_id,
-        stage_id=stage_id,
+        journey_id=journey_id,
         exit_id=exit_id,
         agent_positions=pos_in_spawning_area,
         agent_parameters=jps.CollisionFreeSpeedModelAgentParameters,
     )
+    anim, time_elapsed = run_simulation(simulation, output_file, max_iterations=5000)
+    # ---------------------------------
+    viewpoint = Point(5, 5)  # Center point for test polygon
+    goal = Point(15, 11)
+    # Compute isovist
+    # isovist = cast_rays(polygon, viewpoint)
+    steps = 15
+    speed = 1.0  # meters per step
+    step = 0
+    while step <= steps:
+        step += 1
+        best_point, isovist = compute_next_step(viewpoint, goal, polygon)
+        direction = np.array([best_point.x - viewpoint.x, best_point.y - viewpoint.y])
+        distance = np.linalg.norm(direction)
+        if distance < 1e-6:
+            print("Stuck: best point is current location.")
+            break
 
-    target = Point(-9, 11)
-    while simulation.agent_count() > 0 and simulation.iteration_count() < 10000:
-        for i, agent in enumerate(simulation.agents()):
-            if i == 0:
-                agent.target = (target.x, target.y)
-                if Point(agent.position).distance(target) < 1:
-                    simulation.mark_agent_for_removal(agent.id)
-                    print(f"Mark agent {i} for removal")
+        if isovist:
+            print(step)
+            print(f"Isovist area: {isovist.area:.2f}")
+            print(f"Isovist perimeter: {isovist.length:.2f}")
+            plot_isovist(polygon, isovist, viewpoint, goal, best_point, step)
 
-        simulation.iterate()
+        else:
+            print("No valid isovist computed")
 
-    print(f"Evacuation time: {simulation.elapsed_time():.2f} s")
+        step_fraction = min(speed, distance) / distance
+        viewpoint = Point(
+            viewpoint.x + direction[0] * step_fraction,
+            viewpoint.y + direction[1] * step_fraction,
+        )
+        print(f"Distance to goal: {viewpoint.distance(goal)}")
+
+        if is_goal_reached(viewpoint, goal, threshold=0.1):
+            print("🎯 Goal reached!")
+            break
