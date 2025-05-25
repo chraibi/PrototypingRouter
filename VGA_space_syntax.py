@@ -64,31 +64,33 @@ def cast_rays(polygon: Polygon, origin: Point, n_rays=720):
     return Polygon(intersections) if intersections else None
 
 
-def calculate_visual_connectivity(point: Point, all_points: list, isovist_polygon: Polygon):
+def calculate_visual_connectivity(
+    point: Point, all_points: list, isovist_polygon: Polygon
+):
     """
     Calculate visual connectivity - number of other grid points that are visible from this point.
     Uses the isovist polygon to determine visibility.
-    
+
     Args:
         point: The observation point
         all_points: List of all grid points to check visibility to
         isovist_polygon: The isovist (visibility polygon) from the observation point
-    
+
     Returns:
         int: Number of other points that are visually connected (visible)
     """
     if not isovist_polygon:
         return 0
-    
+
     connected_count = 0
     for other_point in all_points:
         if point.equals(other_point):  # Skip self
             continue
-            
+
         # Check if the other point is within the isovist polygon
         if isovist_polygon.contains(other_point):
             connected_count += 1
-    
+
     return connected_count
 
 
@@ -169,9 +171,11 @@ def create_visibility_graph_from_isovists(points: list, isovists: list):
         for j in range(i + 1, len(points)):
             p1, p2 = points[i], points[j]
             isovist1, isovist2 = isovists[i], isovists[j]
-            
+
             # Check mutual visibility: p2 should be visible from p1 AND p1 should be visible from p2
-            if (isovist1 and isovist1.contains(p2)) and (isovist2 and isovist2.contains(p1)):
+            if (isovist1 and isovist1.contains(p2)) and (
+                isovist2 and isovist2.contains(p1)
+            ):
                 distance = p1.distance(p2)
                 graph.add_edge(i, j, weight=distance)
 
@@ -206,8 +210,12 @@ def calculate_route_score(
 
     # Normalize metrics
     max_connectivity = len(points) - 1
-    norm_connectivity = visual_connectivity / max_connectivity if max_connectivity > 0 else 0
-    norm_through_vision = min(through_vision / 50.0, 1.0)  # Normalize to max expected vision
+    norm_connectivity = (
+        visual_connectivity / max_connectivity if max_connectivity > 0 else 0
+    )
+    norm_through_vision = min(
+        through_vision / 50.0, 1.0
+    )  # Normalize to max expected vision
     norm_depth_penalty = min(depth_penalty / 10.0, 1.0)  # Normalize depth penalty
 
     # Calculate weighted score
@@ -440,18 +448,18 @@ def save_isovists_for_simulation(points: list, isovists: list, filename: str):
     """
     # Save as pickle for fast Python loading
     isovist_data = {
-        'points': [(p.x, p.y) for p in points],
-        'isovists_wkt': [isovist.wkt if isovist else None for isovist in isovists],
-        'grid_size': len(points)
+        "points": [(p.x, p.y) for p in points],
+        "isovists_wkt": [isovist.wkt if isovist else None for isovist in isovists],
+        "grid_size": len(points),
     }
-    
-    with open(filename.replace('.csv', '_isovists.pkl'), 'wb') as f:
+
+    with open(filename.replace(".csv", "_isovists.pkl"), "wb") as f:
         pickle.dump(isovist_data, f)
-    
+
     # Also save as JSON with WKT strings for other languages
-    with open(filename.replace('.csv', '_isovists.json'), 'w') as f:
+    with open(filename.replace(".csv", "_isovists.json"), "w") as f:
         json.dump(isovist_data, f, indent=2)
-    
+
     print(f"Saved isovists to {filename.replace('.csv', '_isovists.pkl')} and .json")
     return isovist_data
 
@@ -492,16 +500,18 @@ def export_grid_results_with_coordinates(
     df = pd.DataFrame(results)
     df.to_csv(filename, index=False)
     print(f"Saved grid results to {filename}")
-    
+
     # Save isovists separately for simulation use
     save_isovists_for_simulation(points, isovists, filename)
-    
+
     return df
 
 
 import argparse
 
-parser = argparse.ArgumentParser(description="Run space syntax grid analysis with proper visual connectivity.")
+parser = argparse.ArgumentParser(
+    description="Run space syntax grid analysis with proper visual connectivity."
+)
 parser.add_argument(
     "--wkt",
     type=str,
@@ -518,13 +528,15 @@ parser.add_argument(
     help="Output CSV filename. (metrics_gallery_grid_fixed.csv)",
 )
 parser.add_argument(
-    "--rays", type=int, default=720, help="Number of rays for isovist calculation. (720)"
+    "--rays",
+    type=int,
+    default=720,
+    help="Number of rays for isovist calculation. (720)",
 )
 args = parser.parse_args()
 
 
 if __name__ == "__main__":
-    # Load or create test polygon
     try:
         with open(args.wkt, "r") as f:
             geometry = wkt.loads(f.read())
@@ -537,7 +549,7 @@ if __name__ == "__main__":
 
     grid_spacing = args.grid
     n_rays = args.rays
-    
+
     # Generate grid points
     start = time.time()
     points, grid_info = generate_grid_points(polygon, grid_spacing)
@@ -563,8 +575,12 @@ if __name__ == "__main__":
     scores = []
     start = time.time()
     print("Calculating space syntax metrics with proper visual connectivity...")
-    for i, (point, isovist) in enumerate(tqdm.tqdm(zip(points, isovists), desc="Computing metrics")):
-        score_data = calculate_route_score(point, points, visibility_graph, i, polygon, isovist)
+    for i, (point, isovist) in enumerate(
+        tqdm.tqdm(zip(points, isovists), desc="Computing metrics")
+    ):
+        score_data = calculate_route_score(
+            point, points, visibility_graph, i, polygon, isovist
+        )
         scores.append(score_data)
 
     # Print top scoring locations
@@ -590,7 +606,9 @@ if __name__ == "__main__":
     print(f"Finished plot in {time.time() - start:.2f} seconds.")
 
     # Export results with grid information and isovists
-    df = export_grid_results_with_coordinates(points, scores, grid_info, isovists, args.output)
+    df = export_grid_results_with_coordinates(
+        points, scores, grid_info, isovists, args.output
+    )
 
     # Print some statistics
     print("\nFixed Grid Analysis Statistics:")
@@ -619,9 +637,13 @@ if __name__ == "__main__":
             print(f"Route quality score: {route['route_quality']:.3f}")
             print(f"Total distance: {route['total_distance']:.2f}")
             print(f"Number of waypoints: {len(route['route_points'])}")
-            
+
     print("\nFiles saved:")
     print(f"- {args.output} (CSV with all metrics)")
-    print(f"- {args.output.replace('.csv', '_isovists.pkl')} (Isovist polygons for simulation)")
-    print(f"- {args.output.replace('.csv', '_isovists.json')} (Isovist polygons as JSON)")
+    print(
+        f"- {args.output.replace('.csv', '_isovists.pkl')} (Isovist polygons for simulation)"
+    )
+    print(
+        f"- {args.output.replace('.csv', '_isovists.json')} (Isovist polygons as JSON)"
+    )
     print("- Metrics_Grid_Fixed.pdf (Visualization)")
