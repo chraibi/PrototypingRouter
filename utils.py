@@ -100,8 +100,8 @@ def calculate_score(
     weights: Dict[str, float],
     grid_usage,
     max_ray_length,
-    USAGE_THRESHOLD=10,
-    USAGE_WEIGHT=0.3,
+    USAGE_THRESHOLD=5,
+    USAGE_WEIGHT=10.5,
 ) -> float:
     """
     Compute the combined score for a candidate point:
@@ -217,9 +217,13 @@ def plot_isovist_from_csv(
         typer.echo(f"⚠ Error accessing isovist data: {e}")
 
     # Plot nearby points colored by score
-    nearby_points = space_syntax_data.get_points_within_radius(
-        current_pos, search_radius
+    nearby_points = space_syntax_data.get_nearest_point_data(
+        current_pos, k_neighbors=32
     )
+
+    # nearby_points = space_syntax_data.get_points_within_radius(
+    #     current_pos, search_radius
+    # )
     if not nearby_points.empty and "score" in nearby_points.columns:
         scatter = ax.scatter(
             nearby_points["x"],

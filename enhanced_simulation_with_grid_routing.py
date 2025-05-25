@@ -327,7 +327,9 @@ def compute_next_step(
     dy = coords[:, 1] - current.y
     ray_lengths = np.hypot(dx, dy)
     max_ray_length = float(ray_lengths.max()) if ray_lengths.size else 0.0
-    for x, y in isovist.exterior.coords:
+    neighbors_df = space_syntax_data.get_nearest_point_data(current, k_neighbors=32)
+    for _, row in neighbors_df.iterrows():
+        x, y = row["x"], row["y"]
         candidate = Point(x, y)
         # Calculate directional alignment score
         direction_to_candidate = np.array([x - current.x, y - current.y])
@@ -504,7 +506,8 @@ def main(
 
     # Define areas (these could be made configurable in future versions)
     exit_polygon = Polygon([[21, 12], [24, 12], [24, 10], [21, 10]])
-    spawning_area = Polygon([[-16, -1], [-12, -1], [-12, -4], [-16, -4]])
+    # spawning_area = Polygon([[-16, -1], [-12, -1], [-12, -4], [-16, -4]])
+    spawning_area = Polygon([[-15, 0], [-12.5, 0], [-12.5, 8], [-15, 8]])
 
     # Initialize simulation
     collision_free_model = jps.CollisionFreeSpeedModel()
@@ -590,18 +593,18 @@ def main(
                 agent.target = (best_point.x, best_point.y)
 
                 # Visualization and logging
-                agent_dir = os.path.join(output_dir, f"agent_{agent_id:02d}")
-                os.makedirs(agent_dir, exist_ok=True)
-                plot_isovist_from_csv(
-                    polygon,
-                    current_pos,
-                    goal,
-                    best_point,
-                    step,
-                    space_syntax_data,
-                    adjustment_info=adjustment_info,
-                    output_dir=agent_dir,
-                )
+                # agent_dir = os.path.join(output_dir, f"agent_{agent_id:02d}")
+                # os.makedirs(agent_dir, exist_ok=True)
+                # plot_isovist_from_csv(
+                #     polygon,
+                #     current_pos,
+                #     goal,
+                #     best_point,
+                #     step,
+                #     space_syntax_data,
+                #     adjustment_info=adjustment_info,
+                #     output_dir=agent_dir,
+                # )
 
                 # Log detailed information
                 current_dist = current_pos.distance(goal)
@@ -642,10 +645,10 @@ def main(
                 #             f"   ⚠ Special case: {adjustment_info.adjustment_type}"
                 #         )
 
-            # Check if goal is reached
-            if is_goal_reached(current_pos, goal, goal_threshold):
-                simulation.mark_agent_for_removal(agent.id)
-                typer.echo(f"✅ Agent {i} reached the goal at step {step}!")
+                # Check if goal is reached
+                if is_goal_reached(current_pos, goal, goal_threshold):
+                    simulation.mark_agent_for_removal(agent.id)
+                    typer.echo(f"✅ Agent {i} reached the goal at step {step}!")
 
         simulation.iterate()
 
