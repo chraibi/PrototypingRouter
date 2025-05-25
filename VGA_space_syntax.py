@@ -241,57 +241,68 @@ def calculate_route_score(
     }
 
 
-def generate_grid_points(polygon: Polygon, grid_spacing: float = 1.0):
+def generate_grid_points(
+    polygon: Polygon,
+    grid_spacing: float = 1.0,
+    min_wall_distance: float = 0.2,
+    plot: bool = True,
+):
     """
-    Generate points on a regular grid within the polygon.
+    Generate grid points within polygon, excluding obstacles and points near walls.
 
     Args:
-        polygon: The polygon to generate points within
-        grid_spacing: Distance between grid points
+        polygon: shapely Polygon with possible holes
+        grid_spacing: distance between grid points
+        min_wall_distance: minimum distance from walls (outer + holes)
+        plot: show plot if True
 
     Returns:
-        list: List of Point objects on the grid that are inside the polygon
+        points: list of valid shapely Points
+        grid_info: list of (i, j, x, y) tuples
     """
     minx, miny, maxx, maxy = polygon.bounds
-
-    # Create grid coordinates
     x_coords = np.arange(minx, maxx + grid_spacing, grid_spacing)
     y_coords = np.arange(miny, maxy + grid_spacing, grid_spacing)
 
     points = []
-    grid_info = []  # Store grid indices for each point
+    grid_info = []
 
     for i, x in enumerate(x_coords):
         for j, y in enumerate(y_coords):
-            point = Point(x, y)
-            if polygon.contains(point):
-                points.append(point)
-                grid_info.append((i, j, x, y))
+            pt = Point(x, y)
+            if not polygon.contains(pt):
+                continue
+            if any(pt.within(Polygon(h)) for h in polygon.interiors):
+                continue
+            if polygon.exterior.distance(pt) < min_wall_distance:
+                continue
+            if any(
+                Polygon(h).distance(pt) < min_wall_distance for h in polygon.interiors
+            ):
+                continue
 
-    print(f"Generated {len(points)} grid points with spacing {grid_spacing}")
+            points.append(pt)
+            grid_info.append((i, j, x, y))
+
+    print(
+        f"Generated {len(points)} grid points (spacing={grid_spacing}, clearance={min_wall_distance})"
+    )
     print(f"Grid dimensions: {len(x_coords)} x {len(y_coords)}")
 
+    if plot:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(*polygon.exterior.xy, color="black", label="Boundary")
+        for hole in polygon.interiors:
+            x, y = zip(*hole.coords)
+            ax.fill(x, y, color="lightgray", label="Obstacle")
+        xs, ys = zip(*[(p.x, p.y) for p in points])
+        ax.scatter(xs, ys, s=10, color="blue", label="Grid Points")
+        ax.set_aspect("equal")
+        ax.set_title(f"dx = {grid_spacing}, clearance = {min_wall_distance}")
+        plt.tight_layout()
+        plt.show()
+
     return points, grid_info
-
-
-def generate_adaptive_grid_points(polygon: Polygon, target_density: int = 100):
-    """
-    Generate grid points with adaptive spacing based on polygon size.
-
-    Args:
-        polygon: The polygon to generate points within
-        target_density: Approximate number of points desired
-
-    Returns:
-        list: List of Point objects on the grid
-    """
-    minx, miny, maxx, maxy = polygon.bounds
-    area = polygon.area
-
-    # Calculate grid spacing based on target density
-    approx_spacing = np.sqrt(area / target_density)
-
-    return generate_grid_points(polygon, approx_spacing)
 
 
 def plot_space_syntax_analysis_grid(
