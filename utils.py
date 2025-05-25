@@ -98,6 +98,9 @@ def calculate_score(
     candidate: Point,
     candidate_data: pd.Series,
     weights: Dict[str, float],
+    grid_usage,
+    USAGE_THRESHOLD=10,
+    USAGE_WEIGHT=0.5,
 ) -> float:
     """
     Compute the combined score for a candidate point:
@@ -137,12 +140,24 @@ def calculate_score(
             + weights["through_vision"] * norm_through
             - weights["depth_penalty"] * norm_depth
         )
+        ci, cj = candidate_data["grid_i"], candidate_data["grid_j"]
+        used = grid_usage[(ci, cj)]
+        if used > 2:
+            diff = USAGE_THRESHOLD - used
+        else:
+            diff = 0
+        usage_score = USAGE_WEIGHT * diff
     else:
         space_syntax_score = 0.0
+        usage_score = 0
 
     # Combined total score
     total_score = (
-        alignment_score + progress_score + space_syntax_score + dist_to_candidate
+        alignment_score
+        + progress_score
+        + space_syntax_score
+        + 0.3 * dist_to_candidate
+        + usage_score
     )
     return total_score
 

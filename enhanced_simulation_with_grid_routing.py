@@ -7,7 +7,7 @@ visibility analysis.
 """
 
 from __future__ import annotations
-
+import os
 import pathlib
 from typing import Dict, List, Optional, Tuple
 import warnings
@@ -38,6 +38,7 @@ except ImportError as e:
 # Suppress potential warnings for cleaner output
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+grid_usage: Dict[Tuple[int, int], int] = defaultdict(int)
 
 # Enhanced progress tracking
 progress_tracker = defaultdict(lambda: deque(maxlen=50))  # Longer history
@@ -96,7 +97,7 @@ def is_agent_stuck(
 
 
 def choose_stochastic_best(candidates_with_scores, agent_id):
-    """Enhanced selection with different strategies based on stuck level"""
+    """Enhanced selection with different strategies based on stuck level."""
     if not candidates_with_scores:
         return None
 
@@ -120,7 +121,7 @@ def choose_stochastic_best(candidates_with_scores, agent_id):
 
 
 def find_best_escape_direction(current_pos, goal, polygon, agent_id, max_distance=5.0):
-    """Find a good escape direction when stuck"""
+    """Find a good escape direction when stuck."""
     # Try directions perpendicular to goal direction
     to_goal = np.array([goal.x - current_pos.x, goal.y - current_pos.y])
     to_goal_norm = to_goal / np.linalg.norm(to_goal)
@@ -286,16 +287,14 @@ def compute_next_step(
             typer.echo(f"⚠ Error loading isovist from CSV: {e}")
 
     if not isovist:
-        # No isovist available, take a direct step toward goal if possible
-        return current, None, []
+        return current, None
 
     # Check if goal is directly visible within the isovist
     if isovist.contains(goal):
-        return goal, None, []
+        return goal, None
 
     # Calculate scores for all isovist boundary points
     current_dist = current.distance(goal)
-    best_score = -np.inf
     best_point = current
     best_data = None
 
@@ -307,11 +306,11 @@ def compute_next_step(
         )
 
         # For heavily stuck agents, try escape direction
-        if stuck_counter[agent_id] > 2:
+        if stuck_counter[agent_id] > 0:
             print(f"🚨 Agent {agent_id} heavily stuck. Trying escape direction.")
             escape_point = find_best_escape_direction(current, goal, polygon, agent_id)
             if escape_point != current:
-                return escape_point, None, []
+                return escape_point, None
     else:
         exploration_mode[agent_id] = False
 
@@ -336,6 +335,7 @@ def compute_next_step(
         direction_to_candidate /= dist_to_candidate
         # Get Space Syntax metrics from CSV for this candidate point
         candidate_data = space_syntax_data.get_nearest_point_data(candidate)
+        # Exploration bonus when stuck
 
         score = calculate_score(
             current,
@@ -345,12 +345,13 @@ def compute_next_step(
             candidate,
             candidate_data.iloc[0] if not candidate_data.empty else pd.Series(),
             weights,
+            grid_usage,
         )
         candidates_with_scores.append((candidate, score))
 
     best_point = choose_stochastic_best(candidates_with_scores, agent_id)
-
-    return best_point, best_data, candidates_with_scores
+    best_data = space_syntax_data.get_nearest_point_data(best_point)
+    return best_point, best_data
 
 
 def initialize_simulation(
@@ -544,20 +545,27 @@ def main(
 
     # Main simulation loop
     typer.echo("\n🏃 Starting simulation...")
-    candidates_with_scores = []
+
     while (
         simulation.agent_count() > 0 and simulation.iteration_count() < max_iterations
     ):
         step = simulation.iteration_count()
+        for cell in list(grid_usage):
+            grid_usage[cell] = max(0, grid_usage[cell] - 1)
 
         for i, agent in enumerate(simulation.agents()):
+            grid_data = space_syntax_data.get_nearest_point_data(Point(agent.position))
+            ci, cj = grid_data["grid_i"].iloc[0], grid_data["grid_j"].iloc[0]
+            # Increment that cell's usage
+            grid_usage[(ci, cj)] += 1
+
             if (
                 i < space_syntax_agents and step % update_freq == 0
             ):  # Space syntax guided agents
                 current_pos = Point(agent.position)
                 agent_id = agent.id
                 # Compute next step using Space Syntax data
-                best_point, best_data, candidates_with_scores = compute_next_step(
+                best_point, best_data = compute_next_step(
                     current_pos,
                     goal,
                     polygon,
@@ -570,60 +578,68 @@ def main(
                 adjusted_point, adjustment_info = validate_and_adjust_target(
                     best_point, current_pos, polygon
                 )
-
-                # # Only use fallback if adjustment completely failed
-                # if (
-                #     adjustment_info.adjustment_type == "fallback_to_current"
-                #     and adjusted_point == current_pos
-                # ):
-                #     # Try a more direct approach toward goal
-                #     adjusted_point = get_fallback_target(current_pos, goal, polygon)
-                #     adjustment_info.adjustment_type = "fallback_towards_goal"
-
                 best_point = adjusted_point
 
                 # Set agent target
                 agent.target = (best_point.x, best_point.y)
 
                 # Visualization and logging
-                if step % update_freq == 0:
-                    plot_isovist_from_csv(
-                        polygon,
-                        current_pos,
-                        goal,
-                        best_point,
-                        step,
-                        space_syntax_data,
-                        adjustment_info=adjustment_info,
-                        output_dir=output_dir,
-                    )
+                agent_dir = os.path.join(output_dir, f"agent_{agent_id:02d}")
+                os.makedirs(agent_dir, exist_ok=True)
+                plot_isovist_from_csv(
+                    polygon,
+                    current_pos,
+                    goal,
+                    best_point,
+                    step,
+                    space_syntax_data,
+                    adjustment_info=adjustment_info,
+                    output_dir=agent_dir,
+                )
 
-                    # Log detailed information
-                    current_dist = current_pos.distance(goal)
-                    space_score = best_data.get("score", 0.0) if best_data else 0.0
+                # Log detailed information
+                current_dist = current_pos.distance(goal)
 
-                    typer.echo(f"\n📍 Step {step} - Agent {i}")
-                    typer.echo(
-                        f"   Position: ({current_pos.x:.2f}, {current_pos.y:.2f})"
-                    )
-                    typer.echo(f"   Target: ({best_point.x:.2f}, {best_point.y:.2f})")
-                    typer.echo(f"   Distance to goal: {current_dist:.2f}m")
-                    typer.echo(f"   Space score: {space_score:.3f}")
+                if best_data is not None and not best_data.empty:
+                    space_score = best_data["score"].iloc[0]
+                    norm_conn = best_data["norm_connectivity"].iloc[0]
+                    norm_int = best_data["norm_integration"].iloc[0]
+                    norm_through = best_data["norm_through_vision"].iloc[0]
+                    norm_depth = best_data["norm_depth_penalty"].iloc[0]
+                    iso_area = best_data["isovist_area"].iloc[0]
 
-                    if adjustment_info.was_adjusted:
-                        if adjustment_info.adjustment_type == "stepped_back":
-                            typer.echo(
-                                f"   → Normal wall stepping ({adjustment_info.final_distance_from_original:.3f}m)"
-                            )
-                        else:
-                            typer.echo(
-                                f"   ⚠ Special case: {adjustment_info.adjustment_type}"
-                            )
+                else:
+                    space_score = 0
+                    norm_conn = 0
+                    norm_int = 0
+                    norm_through = 0
+                    norm_depth = 0
+                    iso_area = 0.0
 
-                # Check if goal is reached
-                if is_goal_reached(current_pos, goal, goal_threshold):
-                    simulation.mark_agent_for_removal(agent.id)
-                    typer.echo(f"✅ Agent {i} reached the goal at step {step}!")
+                typer.echo(f"\n📍 Step {step} - Agent {i}")
+                typer.echo(f"   Position: ({current_pos.x:.2f}, {current_pos.y:.2f})")
+                typer.echo(f"   Target: ({best_point.x:.2f}, {best_point.y:.2f})")
+                typer.echo(f"   Distance to goal: {current_dist:.2f}m")
+                typer.echo(f"   Space score: {space_score:.3f}")
+                typer.echo(f"   Norm connectivity:   {norm_conn:.3f}")
+                typer.echo(f"   Norm integration:    {norm_int:.3f}")
+                typer.echo(f"   Norm through-vision: {norm_through:.3f}")
+                typer.echo(f"   Norm depth-penalty:  {norm_depth:.3f}")
+                typer.echo(f"   Isovist area:        {iso_area:.3f}")
+                # if adjustment_info.was_adjusted:
+                #     if adjustment_info.adjustment_type == "stepped_back":
+                #         typer.echo(
+                #             f"   → Normal wall stepping ({adjustment_info.final_distance_from_original:.3f}m)"
+                #         )
+                #     else:
+                #         typer.echo(
+                #             f"   ⚠ Special case: {adjustment_info.adjustment_type}"
+                #         )
+
+            # Check if goal is reached
+            if is_goal_reached(current_pos, goal, goal_threshold):
+                simulation.mark_agent_for_removal(agent.id)
+                typer.echo(f"✅ Agent {i} reached the goal at step {step}!")
 
         simulation.iterate()
 
