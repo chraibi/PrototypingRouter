@@ -322,6 +322,11 @@ def compute_next_step(
         direction_to_goal /= direction_to_goal_norm
 
     candidates_with_scores = []
+    coords = np.array(list(isovist.exterior.coords))  # shape (N,2)
+    dx = coords[:, 0] - current.x
+    dy = coords[:, 1] - current.y
+    ray_lengths = np.hypot(dx, dy)
+    max_ray_length = float(ray_lengths.max()) if ray_lengths.size else 0.0
     for x, y in isovist.exterior.coords:
         candidate = Point(x, y)
         # Calculate directional alignment score
@@ -346,6 +351,7 @@ def compute_next_step(
             candidate_data.iloc[0] if not candidate_data.empty else pd.Series(),
             weights,
             grid_usage,
+            max_ray_length,
         )
         candidates_with_scores.append((candidate, score))
 

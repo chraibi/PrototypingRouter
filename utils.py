@@ -99,8 +99,9 @@ def calculate_score(
     candidate_data: pd.Series,
     weights: Dict[str, float],
     grid_usage,
+    max_ray_length,
     USAGE_THRESHOLD=10,
-    USAGE_WEIGHT=0.5,
+    USAGE_WEIGHT=0.3,
 ) -> float:
     """
     Compute the combined score for a candidate point:
@@ -152,11 +153,15 @@ def calculate_score(
         usage_score = 0
 
     # Combined total score
+    w_dist = 0.3  # TODO should be in weights
+    distance_score = (
+        w_dist * (dist_to_candidate / max_ray_length) * max(0, alignment_score)
+    )
     total_score = (
         alignment_score
         + progress_score
         + space_syntax_score
-        + 0.3 * dist_to_candidate
+        + distance_score
         + usage_score
     )
     return total_score
