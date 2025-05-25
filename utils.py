@@ -100,8 +100,8 @@ def calculate_score(
     weights: Dict[str, float],
     grid_usage,
     max_ray_length,
-    USAGE_THRESHOLD=5,
-    USAGE_WEIGHT=10.5,
+    USAGE_THRESHOLD=10,
+    USAGE_WEIGHT=2,
 ) -> float:
     """
     Compute the combined score for a candidate point:
@@ -153,12 +153,10 @@ def calculate_score(
         usage_score = 0
 
     # Combined total score
-    w_dist = 0.3  # TODO should be in weights
-    distance_score = (
-        w_dist * (dist_to_candidate / max_ray_length) * max(0, alignment_score)
-    )
+    w_dist = 0.5  # TODO should be in weights
+    distance_score = w_dist * (dist_to_candidate) * max(0, alignment_score)
     total_score = (
-        alignment_score
+        0.5 * alignment_score
         + progress_score
         + space_syntax_score
         + distance_score

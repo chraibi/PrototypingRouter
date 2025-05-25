@@ -331,6 +331,8 @@ def compute_next_step(
     for _, row in neighbors_df.iterrows():
         x, y = row["x"], row["y"]
         candidate = Point(x, y)
+        if not isovist.contains(candidate):
+            continue
         # Calculate directional alignment score
         direction_to_candidate = np.array([x - current.x, y - current.y])
         dist_to_candidate = np.linalg.norm(direction_to_candidate)
@@ -593,18 +595,18 @@ def main(
                 agent.target = (best_point.x, best_point.y)
 
                 # Visualization and logging
-                # agent_dir = os.path.join(output_dir, f"agent_{agent_id:02d}")
-                # os.makedirs(agent_dir, exist_ok=True)
-                # plot_isovist_from_csv(
-                #     polygon,
-                #     current_pos,
-                #     goal,
-                #     best_point,
-                #     step,
-                #     space_syntax_data,
-                #     adjustment_info=adjustment_info,
-                #     output_dir=agent_dir,
-                # )
+                agent_dir = os.path.join(output_dir, f"agent_{agent_id:02d}")
+                os.makedirs(agent_dir, exist_ok=True)
+                plot_isovist_from_csv(
+                    polygon,
+                    current_pos,
+                    goal,
+                    best_point,
+                    step,
+                    space_syntax_data,
+                    adjustment_info=adjustment_info,
+                    output_dir=agent_dir,
+                )
 
                 # Log detailed information
                 current_dist = current_pos.distance(goal)
