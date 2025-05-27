@@ -153,15 +153,22 @@ def calculate_score(
         usage_score = 0
 
     # Combined total score
-    w_dist = 0.5  # TODO should be in weights
+    w_dist = 0.0  # TODO should be in weights
     distance_score = w_dist * (dist_to_candidate) * max(0, alignment_score)
     total_score = (
-        0.5 * alignment_score
+        0.0 * alignment_score
         + progress_score
         + space_syntax_score
         + distance_score
         + usage_score
     )
+    print("====================================")
+    print(candidate)
+    print("candidate data")
+    print(f"{progress_score =}")
+    print(candidate_data)
+    print("total score")
+    print(total_score)
     return total_score
 
 
@@ -175,6 +182,7 @@ def plot_isovist_from_csv(
     current_pos: Point,
     goal: Point,
     best_point: Point,
+    best_score: float,
     step: int,
     space_syntax_data: SpaceSyntaxData,
     search_radius: float = 2.0,
@@ -265,7 +273,7 @@ def plot_isovist_from_csv(
     # Build informative title
     try:
         current_data = space_syntax_data.get_nearest_point_data(current_pos)
-        score = current_data["score"].iloc[0] if "score" in current_data.columns else 0
+        score = best_score
     except Exception as e:
         print(e)
         score = 0

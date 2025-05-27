@@ -107,17 +107,23 @@ def choose_stochastic_best(candidates_with_scores, agent_id):
     if stuck_counter[agent_id] > 1:
         # More random selection from top candidates
         top_k = candidates_with_scores[: min(8, len(candidates_with_scores))]
+
         weights = [0.2, 0.15, 0.15, 0.1, 0.1, 0.1, 0.1, 0.1][: len(top_k)]
-        return random.choices([pt for pt, _ in top_k], weights=weights, k=1)[0]
+        return random.choices(
+            [(pt, score) for pt, score in top_k], weights=weights, k=1
+        )[0]
     else:
         # Normal selection
         top_k = candidates_with_scores[: min(3, len(candidates_with_scores))]
+
         scores = [score for _, score in top_k]
         if max(scores) - min(scores) < 1e-4:
-            return random.choice([pt for pt, _ in top_k])
+            return random.choice([(pt, score) for pt, score in top_k])
         else:
             weights = [0.6, 0.3, 0.1][: len(top_k)]
-            return random.choices([pt for pt, _ in top_k], weights=weights, k=1)[0]
+            return random.choices(
+                [(pt, score) for pt, score in top_k], weights=weights, k=1
+            )[0]
 
 
 def find_best_escape_direction(current_pos, goal, polygon, agent_id, max_distance=5.0):
@@ -332,7 +338,7 @@ def compute_next_step(
         x, y = row["x"], row["y"]
         candidate = Point(x, y)
         if not isovist.contains(candidate):
-            continue
+            continue  # TODO: I dont want people to reply on jupedsim global routing
         # Calculate directional alignment score
         direction_to_candidate = np.array([x - current.x, y - current.y])
         dist_to_candidate = np.linalg.norm(direction_to_candidate)
@@ -359,9 +365,12 @@ def compute_next_step(
         )
         candidates_with_scores.append((candidate, score))
 
-    best_point = choose_stochastic_best(candidates_with_scores, agent_id)
+    best_point, best_score = choose_stochastic_best(candidates_with_scores, agent_id)
     best_data = space_syntax_data.get_nearest_point_data(best_point)
-    return best_point, best_data
+    print("RETURN")
+    print(best_point)
+    print(best_data)
+    return best_point, best_data, best_score
 
 
 def initialize_simulation(
@@ -440,6 +449,7 @@ def main(
     geometry_file: str = typer.Option(
         "files/gallery.wkt", "--geometry", "-g", help="Path to WKT geometry file"
     ),
+    dxf_file: str = typer.Option(None, "--dxf", "-x", help="Path to DXF geometry file"),
     output_file: str = typer.Option(
         "traj.sqlite", "--output", "-o", help="Output trajectory file"
     ),
@@ -495,21 +505,43 @@ def main(
         typer.echo(f"Error loading Space Syntax data: {e}", err=True)
         raise typer.Exit(1)
 
-    # Load geometry
-    try:
+    if dxf_file:
+        import subprocess
+
+        dxf2wkt = "../dxf2wkt.py"
+        geometry_file = "files/tmp.wkt"
+        convert_cmd = [
+            "python",
+            dxf2wkt,
+            "convert",
+            "-i",
+            dxf_file,
+            "-o",
+            geometry_file,
+        ]
+
+        subprocess.run(convert_cmd, check=True)
         with open(geometry_file, "r") as f:
             geometry = wkt.loads(f.read())
         walkable_area = pedpy.WalkableArea(geometry.geoms[0])
+        exit_polygon = pedpy.WalkableArea(geometry.geoms[1]).polygon
+        spawning_area = pedpy.WalkableArea(geometry.geoms[2]).polygon
         polygon = walkable_area.polygon
-        typer.echo(f"✓ Loaded geometry from {geometry_file}")
-    except (FileNotFoundError, IndexError) as e:
-        typer.echo(f"Error loading geometry: {e}", err=True)
-        raise typer.Exit(1)
+        typer.echo(f"✓ Loaded geometry from {dxf_file}")
 
-    # Define areas (these could be made configurable in future versions)
-    exit_polygon = Polygon([[21, 12], [24, 12], [24, 10], [21, 10]])
-    # spawning_area = Polygon([[-16, -1], [-12, -1], [-12, -4], [-16, -4]])
-    spawning_area = Polygon([[-15, 0], [-12.5, 0], [-12.5, 8], [-15, 8]])
+    else:
+        try:
+            with open(geometry_file, "r") as f:
+                geometry = wkt.loads(f.read())
+            walkable_area = pedpy.WalkableArea(geometry.geoms[0])
+            exit_polygon = pedpy.WalkableArea(geometry.geoms[1]).polygon
+            spawning_area = pedpy.WalkableArea(geometry.geoms[2]).polygon
+
+            polygon = walkable_area.polygon
+            typer.echo(f"✓ Loaded geometry from {geometry_file}")
+        except (FileNotFoundError, IndexError) as e:
+            typer.echo(f"Error loading geometry: {e}", err=True)
+            raise typer.Exit(1)
 
     # Initialize simulation
     collision_free_model = jps.CollisionFreeSpeedModel()
@@ -576,7 +608,7 @@ def main(
                 current_pos = Point(agent.position)
                 agent_id = agent.id
                 # Compute next step using Space Syntax data
-                best_point, best_data = compute_next_step(
+                best_point, best_data, best_score = compute_next_step(
                     current_pos,
                     goal,
                     polygon,
@@ -602,6 +634,7 @@ def main(
                     current_pos,
                     goal,
                     best_point,
+                    best_score,
                     step,
                     space_syntax_data,
                     adjustment_info=adjustment_info,
@@ -612,7 +645,7 @@ def main(
                 current_dist = current_pos.distance(goal)
 
                 if best_data is not None and not best_data.empty:
-                    space_score = best_data["score"].iloc[0]
+                    space_score = best_score
                     norm_conn = best_data["norm_connectivity"].iloc[0]
                     norm_int = best_data["norm_integration"].iloc[0]
                     norm_through = best_data["norm_through_vision"].iloc[0]
